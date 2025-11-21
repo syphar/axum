@@ -250,4 +250,56 @@ mod tests {
         let body = res.text().await;
         assert_eq!(body, "Header of type `user-agent` was missing");
     }
+
+    #[tokio::test]
+    async fn typed_header_optional_with_value() {
+        async fn handle(
+            user_agent: Option<TypedHeader<headers::UserAgent>>,
+            if_none_match: Option<TypedHeader<headers::IfNoneMatch>>,
+        ) -> impl IntoResponse {
+            let user_agent = user_agent.map(|ua| ua.0);
+            let if_none_match = if_none_match.map(|inm| inm.0);
+            format!("User-Agent={user_agent:?}, IfNoneMatch={if_none_match:?}")
+        }
+
+        let app = Router::new().route("/", get(handle));
+
+        let client = TestClient::new(app);
+
+        // both headers set
+        let res = client
+            .get("/")
+            .header("user-agent", "foobar")
+            .header("if-none-match", r#""xyz""#)
+            .await;
+        let body = res.text().await;
+        assert_eq!(
+            body,
+            r#"User-Agent=Some(UserAgent("foobar")), IfNoneMatch=Some(IfNoneMatch(Tags("\"xyz\"")))"#
+        );
+
+        // only user-agent
+        let res = client.get("/").header("user-agent", "foobar").await;
+        let body = res.text().await;
+        assert_eq!(
+            body,
+            r#"User-Agent=Some(UserAgent("foobar")), IfNoneMatch=Some(IfNoneMatch(Tags("")))"#
+        );
+
+        // only if-none-match
+        let res = client.get("/").header("if-none-match", r#""xyz""#).await;
+        let body = res.text().await;
+        assert_eq!(
+            body,
+            "User-Agent=None, IfNoneMatch=Some(IfNoneMatch(Tags(\"\\\"xyz\\\"\")))"
+        );
+
+        // without one ot the headers
+        let res = client.get("/").await;
+        let body = res.text().await;
+        assert_eq!(
+            body,
+            "User-Agent=None, IfNoneMatch=Some(IfNoneMatch(Tags(\"\")))"
+        );
+    }
 }
